@@ -121,7 +121,6 @@ module Git
       arr_opts << "--match=#{opts[:match]}" if opts[:match]
       
       arr_opts << committish if committish
-      arr_opts << '2> /dev/null'
 
       return command('describe', arr_opts)
     end
@@ -914,7 +913,7 @@ module Git
       
       global_opts = global_opts.flatten.map {|s| escape(s) }.join(' ')
       
-      git_cmd = "#{Git::Base.config.binary_path} #{global_opts} #{cmd} #{opts} #{redirect} 2>&1"
+      git_cmd = "#{Git::Base.config.binary_path} #{global_opts} #{cmd} #{opts} #{redirect}"
       
       output = nil
       
