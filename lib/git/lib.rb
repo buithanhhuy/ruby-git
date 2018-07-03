@@ -879,7 +879,6 @@ module Git
     def current_command_version
       output = command('version', [], false)
       version = output[/\d+\.\d+(\.\d+)+/]
-      puts "__HUY__ output: #{output} : #{version}"
       version.split('.').collect {|i| i.to_i}
     end
 
@@ -1050,9 +1049,8 @@ module Git
 
       io = IO.popen(git_cmd, :err=>"/dev/null")
       output = io.read.chomp
-      # puts "HUY_code hitted with pid: #{io.pid}"
       io.close
-      puts "Error: #{output}"
+      output
     end
 
     def escape(s)
