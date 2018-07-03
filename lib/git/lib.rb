@@ -1,4 +1,5 @@
 require 'tempfile'
+# require 'posix-spawn'
 
 module Git
 
@@ -6,6 +7,8 @@ module Git
   end
 
   class Lib
+#     include POSIX::Spawn
+    attr_accessor :git_pid
 
     @@semaphore = Mutex.new
 
@@ -879,7 +882,6 @@ module Git
     def current_command_version
       output = command('version', [], false)
       version = output[/\d+\.\d+(\.\d+)+/]
-      puts "__HUY__ output: #{output} : #{version}"
       version.split('.').collect {|i| i.to_i}
     end
 
@@ -889,6 +891,10 @@ module Git
 
     def meets_required_version?
       (self.current_command_version <=>  self.required_command_version) >= 0
+    end
+
+    def kill_orphan_process
+      puts "__HUY__ going to kill process #{git_pid}"
     end
 
 
@@ -929,6 +935,7 @@ module Git
       ENV['GIT_WORK_TREE'] = @git_work_dir
       ENV['GIT_INDEX_FILE'] = @git_index_file
       ENV['GIT_SSH'] = Git::Base.config.git_ssh
+      ENV['PATH'] = '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin'
     end
 
     # Runs a block inside an environment with customized ENV variables.
@@ -955,17 +962,33 @@ module Git
       global_opts = global_opts.flatten.map {|s| escape(s) }.join(' ')
 
       git_cmd = "#{Git::Base.config.binary_path} #{global_opts} #{cmd} #{opts} #{redirect}"
-
+      git_cmd_arr = ""
+      git_cmd_arr = "#{Git::Base.config.binary_path}"
+      git_options=""
+      if !cmd.to_s.empty?
+        git_cmd_arr = git_cmd_arr + " #{cmd}"
+      end
+      if !global_opts.to_s.empty?
+        git_options = "#{global_opts}"
+      end
+      if !opts.to_s.empty?
+        git_options = git_options +" #{opts}"
+      end
+      if !redirect.to_s.empty?
+        git_options = git_options +" #{redirect}"
+      end
+#      if !git_options.to_s.empty?
+#        git_cmd_arr << "#{git_options}"
+#      end
+      puts "__HUY__ : #{git_cmd_arr} __ #{git_options}"
       output = nil
 
+      puts "__HUY__ : #{git_cmd}"
       command_thread = nil;
-
-      exitstatus = nil
 
       with_custom_env_variables do
         command_thread = Thread.new do
-          output = run_command(git_cmd, &block)
-          exitstatus = $?.exitstatus
+          output = run_command(git_cmd_arr, git_options, &block)
         end
         command_thread.join
       end
@@ -975,9 +998,7 @@ module Git
         @logger.debug(output)
       end
 
-      if exitstatus > 1 || (exitstatus == 1 && output != '')
-        raise Git::GitExecuteError.new(git_cmd + ':' + output.to_s)
-      end
+
 
       return output
     end
@@ -1045,14 +1066,55 @@ module Git
       arr_opts
     end
 
-    def run_command(git_cmd, &block)
-      return IO.popen(git_cmd, :err=>"/dev/null", &block) if block_given?
+    def run_command(git_cmd, options ='', &block)
+      return IO.popen(ENV, [git_cmd, options], :err=>[:child, :out], &block) if block_given?
 
-      io = IO.popen(git_cmd, :err=>"/dev/null")
+      # Handle exit
+      git_pid = 0
+      at_exit do
+        puts "__HUY__ run_command close at exit pid:#{Process.pid} gitpid:#{git_pid}"
+        IO.popen('ps -ef') do | readme |
+          readme.each do | line |
+            puts "__HUY__ cmd: #{line}"
+          end
+        end
+      end
+      # io = IO.popen(git_cmd, :err=>"/dev/null")
+      git_env = {
+        'RUBY_MAJOR' => '2.4',
+        'USER' => 'gerrit-sync',
+        'SYNC_GID' => '1000',
+        'SYNC_UID' => '1000',
+        'BUNDLER_VERSION' => '1.16.2',
+        'RUBYGEMS_VERSION' => '2.7.7',
+        'RUBY_VERSION' => '2.4.4',
+        'SHLVL' => '2',
+        'HOME' => '/home/gerrit-sync',
+        'OLDPWD' => '/usr/src/app',
+        'BUNDLE_APP_CONFIG' => '/usr/local/bundle',
+        'LOGNAME' => 'gerrit-sync',
+        'PATH' => '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin',
+        'BUNDLE_PATH' => '/usr/local/bundle',
+        'SHELL' => '/bin/sh',
+        'GEM_HOME' => '/usr/local/bundle',
+        'SYNC_USER' => 'gerrit-sync',
+        'RUBYLIB' => '/usr/local/lib/ruby/site_ruby/2.4.0',
+        'RUBYOPT' => '-rbundler/setup'
+      }
+      if !options.to_s.empty?
+        io = IO.popen([git_env, git_cmd + options, :err=>[:child, :out]])
+      else
+        io = IO.popen([git_env, git_cmd, :err=>[:child, :out]])
+      end
+      git_pid = io.pid
       output = io.read.chomp
-      # puts "HUY_code hitted with pid: #{io.pid}"
+      puts "__HUY__ output = #{output}"
       io.close
-      puts "Error: #{output}"
+      exitstatus = $?.exitstatus
+      if exitstatus > 1 || (exitstatus == 1 && output != '')
+        raise Git::GitExecuteError.new(git_cmd + ':' + output.to_s)
+      end
+      output
     end
 
     def escape(s)

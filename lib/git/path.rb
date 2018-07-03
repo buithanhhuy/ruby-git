@@ -4,7 +4,7 @@ module Git
 
     attr_accessor :path
 
-    def initialize(path, check_path=true)
+    def initialize(path, check_path=false)
       path = File.expand_path(path)
 
       if check_path && !File.exist?(path)
