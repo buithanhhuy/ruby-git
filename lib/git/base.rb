@@ -545,9 +545,6 @@ module Git
       self.lib.branch_current
     end
 
-    def kill_orphan_process
-      self.lib.kill_orphan_process
-    end
   end
 
 end
